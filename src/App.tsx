@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabase'
 import Auth from './auth'
-import { printHtml } from './print'
 
-// ---------- Types ----------
 type Entreprise = {
   id?: number
   user_id: string
@@ -34,37 +32,32 @@ type Dossier = {
   archive?: boolean
 }
 
-// ---------- Helpers ----------
 const currency = (n: number) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n || 0)
 const uid = () => Math.random().toString(36).slice(2, 9)
 
 const defaultPrestations: Omit<Prestation, 'id' | 'user_id'>[] = [
   { nom: 'Mise en bière et fermeture du cercueil', prix: 290 },
-  { nom: 'Cercueil chêne – gamme classique', prix: 780 },
+  { nom: 'Cercueil chêne - gamme classique', prix: 780 },
   { nom: 'Capitonnage tissu écru', prix: 180 },
   { nom: 'Transport (forfait 50 km)', prix: 220 },
   { nom: 'Maître de cérémonie', prix: 200 },
   { nom: 'Démarches administratives', prix: 95 },
   { nom: 'Ouverture/fermeture de caveau', prix: 350 },
-  { nom: 'Urne funéraire – standard', prix: 120 },
+  { nom: 'Urne funéraire - standard', prix: 120 },
 ]
 
-// ---------- Root ----------
 export default function App() {
   const [session, setSession] = useState<any>(null)
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
     return () => sub.subscription.unsubscribe()
   }, [])
-
   if (!session) return <Auth />
   return <Dashboard userId={session.user.id} email={session.user.email} />
 }
 
-// ---------- Dashboard ----------
 function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [entreprise, setEntreprise] = useState<Entreprise | null>(null)
   const [prestations, setPrestations] = useState<Prestation[]>([])
@@ -74,9 +67,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
   const [currentId, setCurrentId] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
-  // Chargement initial
   useEffect(() => {
-    ;(async () => {
+    const load = async () => {
       // Entreprise
       const { data: e } = await supabase
         .from('entreprise')
@@ -99,11 +91,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
           .select()
           .single()
         setEntreprise(ins as Entreprise)
-      } else {
-        setEntreprise(e as Entreprise)
-      }
+      } else setEntreprise(e as Entreprise)
 
-      // Prestations
+      // Prestations (seed si vide)
       let { data: pr } = await supabase
         .from('prestations')
         .select('*')
@@ -123,7 +113,8 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
         .eq('user_id', userId)
         .order('modifie_le', { ascending: false })
       setDossiers((ds || []) as Dossier[])
-    })()
+    }
+    load()
   }, [userId, email])
 
   const current = useMemo(
@@ -138,18 +129,18 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
       (d) =>
         !d.archive &&
         (d.reference.toLowerCase().includes(query) ||
-          `${d.defunt_nom} ${d.defunt_prenom}`.toLowerCase().includes(query) ||
+          (d.defunt_nom + ' ' + d.defunt_prenom).toLowerCase().includes(query) ||
           (d.famille_contact || '').toLowerCase().includes(query) ||
           (d.ceremonie_lieu || '').toLowerCase().includes(query)),
     )
   }, [q, dossiers])
 
-  // CRUD dossiers
   async function newDossier() {
     const now = new Date().toISOString()
     const d: Dossier = {
       user_id: userId,
-      reference: `PFV-${new Date().getFullYear()}-${String(dossiers.length + 1).padStart(4, '0')}`,
+      reference:
+        'PFV-' + new Date().getFullYear() + '-' + String(dossiers.length + 1).padStart(4, '0'),
       defunt_nom: '',
       defunt_prenom: '',
       famille_contact: '',
@@ -164,7 +155,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
       alert(error.message)
       return
     }
-    setDossiers((prev) => [ins as Dossier, ...prev]) // ✅ pas de "*prev"
+    setDossiers((prev) => [ins as Dossier, ...prev])
     setCurrentId((ins as any).id as number)
   }
 
@@ -191,24 +182,15 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     setCurrentId(null)
   }
 
-  // Totaux
-  const prixPrest = (d: Dossier) => {
-    const map = new Map(prestations.map((p) => [String(p.id), p] as const))
-    return d.prestations.reduce((s, id) => s + (map.get(String(id))?.prix || 0), 0)
-  }
-  const totalLignes = (lst: Ligne[]) => lst.reduce((s, l) => s + l.qte * (l.pu || 0), 0)
-  const totalDossier = (d: Dossier) => prixPrest(d) + totalLignes(d.marbrerie) + totalLignes(d.autres)
-
-  // Export / Import
+  // Export / Import JSON (simple)
   function exportJSON() {
-    const blob = new Blob(
-      [JSON.stringify({ dossiers, prestations, entreprise }, null, 2)],
-      { type: 'application/json' },
-    )
+    const blob = new Blob([JSON.stringify({ dossiers, prestations, entreprise }, null, 2)], {
+      type: 'application/json',
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `pfv_export_${new Date().toISOString().slice(0, 10)}.json`
+    a.download = 'pfv_export.json'
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -252,55 +234,7 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
     setEntreprise(data as Entreprise)
   }
 
-  function openDevisAndPrint(d: Dossier) {
-    const map = new Map(prestations.map((p) => [String(p.id), p] as const))
-    const lignesPrest = d.prestations
-      .map((id) => map.get(String(id)))
-      .filter(Boolean)
-      .map((p) => ({ nom: (p as any).nom, prix: (p as any).prix }))
-
-    const rowsPrest = lignesPrest
-      .map((p) => `<tr><td>${escapeHtml(p.nom)}</td><td style="text-align:right">${currency(p.prix)}</td></tr>`)
-      .join('')
-    const rowsMarb = d.marbrerie
-      .map((l) => `<tr><td>${escapeHtml(l.nom)} × ${l.qte}</td><td style="text-align:right">${currency(l.qte * l.pu)}</td></tr>`)
-      .join('')
-    const rowsAutres = d.autres
-      .map((l) => `<tr><td>${escapeHtml(l.nom)} × ${l.qte}</td><td style="text-align:right">${currency(l.qte * l.pu)}</td></tr>`)
-      .join('')
-
-    const sig = entreprise?.signature_data_url
-      ? `<div><div style="color:#666;font-size:12px">Signature</div><img src="${entreprise.signature_data_url}" alt="signature" style="height:60px"/></div>`
-      : ''
-
-    const html = `
-      <h2>Devis n° ${escapeHtml(d.reference)}</h2>
-      <div style="color:#666">Établi le ${new Date().toLocaleDateString('fr-FR')}</div>
-      <div style="margin-top:8px"><strong>Défunt :</strong> ${escapeHtml(d.defunt_prenom)} ${escapeHtml(d.defunt_nom)}</div>
-      ${d.ceremonie_date ? `<div style="color:#666">Cérémonie : ${new Date(d.ceremonie_date).toLocaleString('fr-FR')}${d.ceremonie_lieu ? ' • ' + escapeHtml(d.ceremonie_lieu) : ''}</div>` : ''}
-      <table style="width:100%;border-collapse:collapse;margin-top:12px">
-        <thead><tr><th style="text-align:left">Libellé</th><th style="text-align:right">Prix</th></tr></thead>
-        <tbody>${rowsPrest}${rowsMarb}${rowsAutres}</tbody>
-      </table>
-      <div style="text-align:right;font-weight:700;margin-top:8">Total TTC : ${currency(totalDossier(d))}</div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:16px">
-        <div style="color:#666">Devis valable 30 jours. Prix TTC indicatifs.</div>
-        ${sig}
-      </div>
-    `
-    printHtml(html)
-  }
-
-  function escapeHtml(s: string) {
-    return String(s || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-  }
-
-  // ---------- UI ----------
+  // UI (sans génération PDF pour éviter toute erreur de syntaxe)
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', minHeight: '100vh' }}>
       <aside style={{ borderRight: '1px solid #eee', padding: 16, background: 'white' }}>
@@ -325,13 +259,13 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
         </div>
 
         <div style={{ display: 'grid', gap: 6, marginTop: 16 }}>
-          <button onClick={() => setTab('dossiers')} style={{ textAlign: 'left', background: tab === 'dossiers' ? '#eef7ee' : 'white' }}>
+          <button onClick={() => setTab('dossiers')} style={{ textAlign: 'left' }}>
             📁 Dossiers
           </button>
-          <button onClick={() => setTab('tarifs')} style={{ textAlign: 'left', background: tab === 'tarifs' ? '#eef7ee' : 'white' }}>
+          <button onClick={() => setTab('tarifs')} style={{ textAlign: 'left' }}>
             💶 Tarifs
           </button>
-          <button onClick={() => setTab('param')} style={{ textAlign: 'left', background: tab === 'param' ? '#eef7ee' : 'white' }}>
+          <button onClick={() => setTab('param')} style={{ textAlign: 'left' }}>
             ⚙️ Paramètres
           </button>
         </div>
@@ -362,7 +296,14 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                       <strong>
                         {d.defunt_prenom || '?'} {d.defunt_nom || '?'}
                       </strong>
-                      <span style={{ color: '#333' }}>{currency(totalDossier(d))}</span>
+                      <span style={{ color: '#333' }}>{currency(
+                        d.prestations.length
+                          ? d.prestations.reduce((s, id) => {
+                              const p = prestations.find((x) => String(x.id) === String(id))
+                              return s + (p ? p.prix : 0)
+                            }, 0)
+                          : 0
+                      )}</span>
                     </div>
                     <small style={{ color: '#666' }}>
                       {d.reference}
@@ -377,28 +318,15 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
               {current ? (
                 <div style={{ display: 'grid', gap: 10 }}>
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button onClick={() => openDevisAndPrint(current)}>🧾 Devis (PDF)</button>
                     <button onClick={removeDossier}>🗑️ Archiver</button>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     <input placeholder="Nom défunt" value={current.defunt_nom} onChange={(e) => updateCurrent({ defunt_nom: e.target.value } as any)} />
                     <input placeholder="Prénom défunt" value={current.defunt_prenom} onChange={(e) => updateCurrent({ defunt_prenom: e.target.value } as any)} />
-                    <input
-                      placeholder="Lieu cérémonie"
-                      value={current.ceremonie_lieu || ''}
-                      onChange={(e) => updateCurrent({ ceremonie_lieu: e.target.value } as any)}
-                    />
-                    <input
-                      type="datetime-local"
-                      value={current.ceremonie_date || ''}
-                      onChange={(e) => updateCurrent({ ceremonie_date: e.target.value } as any)}
-                    />
-                    <input
-                      placeholder="Famille contact"
-                      value={current.famille_contact}
-                      onChange={(e) => updateCurrent({ famille_contact: e.target.value } as any)}
-                    />
+                    <input placeholder="Lieu cérémonie" value={current.ceremonie_lieu || ''} onChange={(e) => updateCurrent({ ceremonie_lieu: e.target.value } as any)} />
+                    <input type="datetime-local" value={current.ceremonie_date || ''} onChange={(e) => updateCurrent({ ceremonie_date: e.target.value } as any)} />
+                    <input placeholder="Famille contact" value={current.famille_contact} onChange={(e) => updateCurrent({ famille_contact: e.target.value } as any)} />
                   </div>
 
                   <div>
@@ -437,25 +365,6 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
                         )
                       })}
                     </div>
-                    <div style={{ textAlign: 'right', marginTop: 6 }}>
-                      <strong>Sous-total prestations : {currency(prixPrest(current))}</strong>
-                    </div>
-                  </div>
-
-                  <EditableLines
-                    title="Marbrerie"
-                    lines={current.marbrerie}
-                    onChange={(lines) => updateCurrent({ marbrerie: lines } as any)}
-                  />
-                  <EditableLines
-                    title="Autres lignes"
-                    lines={current.autres}
-                    onChange={(lines) => updateCurrent({ autres: lines } as any)}
-                  />
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: 8 }}>
-                    <div style={{ color: '#666' }}>Prix TTC indicatif (sans ventilation TVA)</div>
-                    <div style={{ fontWeight: 700, fontSize: 22 }}>{currency(totalDossier(current))}</div>
                   </div>
                 </div>
               ) : (
@@ -515,89 +424,9 @@ function Dashboard({ userId, email }: { userId: string; email: string }) {
             <input placeholder="Adresse" value={entreprise.adresse} onChange={(e) => saveEntreprisePatch({ adresse: e.target.value })} />
             <input placeholder="Téléphone" value={entreprise.telephone} onChange={(e) => saveEntreprisePatch({ telephone: e.target.value })} />
             <input placeholder="Email" value={entreprise.email} onChange={(e) => saveEntreprisePatch({ email: e.target.value })} />
-            <div>
-              <div style={{ fontSize: 12, color: '#666' }}>Signature (PNG/JPEG)</div>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (!f) return
-                  const r = new FileReader()
-                  r.onload = () => {
-                    saveEntreprisePatch({ signature_data_url: String(r.result) })
-                  }
-                  r.readAsDataURL(f)
-                }}
-              />
-              {entreprise.signature_data_url && <img src={entreprise.signature_data_url} alt="signature" style={{ height: 48, marginTop: 8 }} />}
-            </div>
           </div>
         )}
       </main>
-    </div>
-  )
-}
-
-// ---------- Sous-composant ----------
-function EditableLines({
-  title,
-  lines,
-  onChange,
-}: {
-  title: string
-  lines: Ligne[]
-  onChange: (l: Ligne[]) => void
-}) {
-  return (
-    <div style={{ border: '1px solid #eee', borderRadius: 8, padding: 10, marginTop: 10, background: 'white' }}>
-      <div style={{ fontWeight: 600 }}>{title}</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left' }}>Libellé</th>
-            <th>Qté</th>
-            <th>PU</th>
-            <th>Total</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l) => (
-            <tr key={l.id}>
-              <td>
-                <input
-                  value={l.nom}
-                  onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, nom: e.target.value } : x)))}
-                />
-              </td>
-              <td>
-                <input
-                  type="number"
-                  value={l.qte}
-                  onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, qte: Number(e.target.value) } : x)))}
-                />
-              </td>
-              <td>
-                <input
-                  type="number"
-                  value={l.pu}
-                  onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, pu: Number(e.target.value) } : x)))}
-                />
-              </td>
-              <td style={{ textAlign: 'right' }}>
-                <strong>{currency(l.qte * (l.pu || 0))}</strong>
-              </td>
-              <td style={{ textAlign: 'right' }}>
-                <button onClick={() => onChange(lines.filter((x) => x.id !== l.id))}>Supprimer</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div style={{ textAlign: 'left', marginTop: 8 }}>
-        <button onClick={() => onChange([{ id: uid(), nom: '', qte: 1, pu: 0 }, ...lines])}>➕ Ajouter une ligne</button>
-      </div>
     </div>
   )
 }
